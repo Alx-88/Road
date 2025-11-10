@@ -22,6 +22,7 @@ class TaskLandXMLImport(TaskPanel):
         self.parser = Parser()
         self.selected_file = None
         self.errors = []
+        self.xml =None
         self.initUI()
         
     def initUI(self):
