@@ -42,7 +42,7 @@ class Spiral(Geometry):
         self.constant = float(data['constant']) if 'constant' in data else None
         self.chord = float(data['chord']) if 'chord' in data else None
 
-        # Auto compute
+        # Auto compute missing values
         self.compute_missing_values()
 
     def _validate_data(self, data: Dict):
@@ -56,8 +56,8 @@ class Spiral(Geometry):
             raise ValueError("Invalid spiral type")
 
     def compute_missing_values(self):
+        # Calculate constant A first if not provided
         if self.constant is None:
-            # Correct constant A calculation
             # Entry/Exit spiral (infinite → finite OR finite → infinite)
             if self.radius_start == float('inf') and self.radius_end != float('inf'):
                 self.constant = math.sqrt(self.radius_end * self.length)
@@ -69,35 +69,63 @@ class Spiral(Geometry):
                 R2 = self.radius_end
                 self.constant = math.sqrt(R1 * R2 * self.length / abs(R1 - R2))
 
-        if True: #self.theta is None:
-            R = self.radius_end if self.radius_start == float('inf') else self.radius_start
-            self.theta = self.length / (2 * R)
+        # Calculate theta ONLY if not provided in LandXML
+        if self.theta is None:
+            # For clothoid spiral: theta = L² / (2*A²)
+            # Or equivalently: theta = L / (2*R) where R is the finite radius
+            if self.radius_start == float('inf'):
+                # Entry spiral: starts straight, curves to radius_end
+                self.theta = self.length / (2 * self.radius_end)
+            elif self.radius_end == float('inf'):
+                # Exit spiral: starts at radius_start, ends straight
+                self.theta = self.length / (2 * self.radius_start)
+            else:
+                # Compound spiral: use the deflection angle formula
+                # theta = (L²) / (2 * A²)
+                self.theta = (self.length ** 2) / (2 * self.constant ** 2)
 
-        if True: #self.dir_start is None:
+        # Calculate start direction if not provided
+        if self.dir_start is None:
             dx = self.pi_point[0] - self.start_point[0]
             dy = self.pi_point[1] - self.start_point[1]
             if dx == 0 and dy == 0:
                 raise ValueError("Start and PI cannot be identical")
             self.dir_start = math.atan2(dy, dx)
 
-        sign = 1 if self.rotation == 'ccw' else -1
-        self.dir_end = self.dir_start + self.theta * sign
+        # Calculate end direction based on rotation
+        sign = 1 if self.rotation == 'cw' else -1
+        if self.dir_end is None:
+            self.dir_end = self.dir_start + self.theta * sign
 
+        # Calculate end point in local coordinates
         end_x, end_y = self.get_point_at_distance(self.length)
 
+        # Set remaining optional values
         if self.total_x is None:
             self.total_x = end_x
         if self.total_y is None:
             self.total_y = end_y
-
         if self.tan_long is None:
             self.tan_long = end_x
         if self.tan_short is None:
             self.tan_short = end_y
-
         if self.chord is None:
             self.chord = math.sqrt(end_x ** 2 + end_y ** 2)
 
+    def get_key_points(self) -> List[Tuple[float, float]]:
+        """
+        Return key points along the spiral for visualization.
+        
+        Args:
+            num_points: Number of points to generate along spiral
+            coordinate_system: Optional CoordinateSystem for transformation
+            
+        Returns:
+            List of (x, y) tuples
+        """
+        
+        return self.generate_points(1)
+    
     def _is_reversed(self) -> bool:
         """
         Check if the spiral is reversed (radius increases along the spiral).
@@ -172,7 +200,7 @@ class Spiral(Geometry):
         return (x, y)
 
     def _clothoid_point(self, L: float) -> Tuple[float, float]:
-        sign = 1 if self.rotation == 'ccw' else -1
+        sign = -1 if self.rotation == 'ccw' else 1
         if self.radius_end > self.radius_start:
             sign *= -1
 
@@ -184,7 +212,7 @@ class Spiral(Geometry):
         return x, y
     
     def _compound_clothoid_point(self, L: float) -> Tuple[float, float]:
-        sign = 1 if self.rotation == 'ccw' else -1
+        sign = -1 if self.rotation == 'ccw' else 1
         R1 = self.radius_start
         R2 = self.radius_end
         A = self.constant

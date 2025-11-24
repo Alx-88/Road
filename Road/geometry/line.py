@@ -29,7 +29,7 @@ class Line(Geometry):
         """Calculate all missing optional attributes from geometry"""
         
         # Calculate direction if not provided
-        if True: #self.direction is None:
+        if self.direction is None:
             dx = self.end_point[0] - self.start_point[0]
             dy = self.end_point[1] - self.start_point[1]
             self.direction = math.atan2(dy, dx)
@@ -87,7 +87,7 @@ class Line(Geometry):
     def get_key_points(self) -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """Return start, middle, and end points of the line"""
         
-        return self.start_point, self.end_point
+        return [self.start_point, self.end_point]
     
     def get_orthogonal(self, s: float, side: str = 'left') -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """
@@ -172,7 +172,7 @@ class Line(Geometry):
         """String representation of line"""
         return (
             f"Line(start={self.start_point}, end={self.end_point}, "
-            f"length={self.length:.2f}, direction={math.degrees(self.direction):.2f}°)"
+            f"length={self.length:.2f}, direction={self.direction:.2f})"
         )
 
     def __str__(self) -> str:

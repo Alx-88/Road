@@ -1,18 +1,20 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+import math
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 from pathlib import Path
-from ..geometry.alignment import Alignment
 from .landxml_config import (
+    LANDXML_NAMESPACES,
+    UNITS_CONFIG,
+    ANGULAR_UNITS,
     GEOMETRY_CONFIG,
     ALIGNMENT_CONFIG,
     ALIGN_PI_CONFIG,
     STATION_EQUATION_CONFIG,
     CGPOINT_CONFIG,
     SURFACE_CONFIG,
-    FACE_CONFIG,
-    LANDXML_NAMESPACES
+    FACE_CONFIG
 )
 
 
@@ -43,8 +45,14 @@ class LandXMLReader:
         self.cgpoints_data = []
         self.surfaces_data = []
         
-        # Parse the XML file
+        self.angular_unit = 'decimal degrees'  # Default
+        self.direction_unit = 'decimal degrees'  # Default
+        self.angular_conversion_factor = ANGULAR_UNITS['decimal degrees']
+        self.direction_conversion_factor = ANGULAR_UNITS['decimal degrees']
+    
+        # Parse the XML file and parse units
         self._parse_xml()
+        self._parse_units()
     
     def _parse_xml(self):
         """Parse XML file and get root element"""
@@ -103,6 +111,108 @@ class LandXMLReader:
         
         return elems
     
+    def _parse_units(self):
+        """
+        Parse Units element to determine angular unit system.
+        Sets conversion factors for angle/direction attributes.
+        """
+        units_elem = self._find_element(self.root, 'Units')
+        
+        if units_elem is None:
+            print("Warning: No Units element found, using default (decimal degrees)")
+            return
+        
+        # Check for Metric or Imperial units
+        metric_elem = self._find_element(units_elem, 'Metric')
+        imperial_elem = self._find_element(units_elem, 'Imperial')
+        
+        units_data = None
+        if metric_elem is not None:
+            units_data = self._parse_attributes(metric_elem, UNITS_CONFIG['Metric']['attr_map'])
+        elif imperial_elem is not None:
+            units_data = self._parse_attributes(imperial_elem, UNITS_CONFIG['Imperial']['attr_map'])
+        
+        if units_data:
+            # Get angular unit
+            if 'angularUnit' in units_data:
+                self.angular_unit = units_data['angularUnit']
+                if self.angular_unit in ANGULAR_UNITS:
+                    self.angular_conversion_factor = ANGULAR_UNITS[self.angular_unit]
+                else:
+                    print(f"Warning: Unknown angular unit '{self.angular_unit}', using decimal degrees")
+            
+            # Get direction unit (for azimuth/bearing)
+            if 'directionUnit' in units_data:
+                self.direction_unit = units_data['directionUnit']
+                if self.direction_unit in ANGULAR_UNITS:
+                    self.direction_conversion_factor = ANGULAR_UNITS[self.direction_unit]
+                else:
+                    print(f"Warning: Unknown direction unit '{self.direction_unit}', using decimal degrees")
+
+    def _parse_attributes(self, element: ET.Element, attr_map: Dict) -> Dict:
+        """
+        Parse element attributes based on mapping.
+        
+        Args:
+            element: XML element
+            attr_map: Dict mapping {xml_attr_name: (output_key, converter_func)}
+                    converter_func can be: float, int, str, 'angle', 'radius', or custom function
+        
+        Returns:
+            Dictionary with parsed attributes
+        """
+        result = {}
+        
+        for xml_attr, (output_key, converter) in attr_map.items():
+            if xml_attr in element.attrib:
+                value = element.attrib[xml_attr]
+                
+                try:
+                    if converter == 'float':
+                        result[output_key] = float(value)
+                    elif converter == 'int':
+                        result[output_key] = int(value)
+                    elif converter == 'radius':
+                        result[output_key] = float('inf') if value == 'INF' else float(value)
+                    elif converter == 'angle':
+                        # Convert angle to radians
+                        if 'dir' in xml_attr.lower():
+                            # This is a direction/azimuth attribute
+                            dir_value = float(value)
+                            
+                            if self.direction_unit == 'radians':
+                                # Already in radians and already math angle (Quadri format)
+                                result[output_key] = dir_value
+                            else:
+                                # In degrees and it's azimuth (Civil3D, standard LandXML)
+                                # Convert azimuth to math angle
+                                azimuth_deg = dir_value
+                                math_angle_deg = 90.0 - azimuth_deg
+                                result[output_key] = math.radians(math_angle_deg)
+                        else:
+                            # Other angles (delta, theta) - just convert based on unit
+                            result[output_key] = float(value) * self.angular_conversion_factor
+                    else:
+                        result[output_key] = value
+                except (ValueError, AttributeError):
+                    continue
+        
+        return result
+    
+    def get_units_info(self) -> Dict:
+        """
+        Get information about the unit system used in the LandXML file.
+        
+        Returns:
+            Dictionary containing unit information
+        """
+        return {
+            'angular_unit': self.angular_unit,
+            'direction_unit': self.direction_unit,
+            'angular_conversion_factor': self.angular_conversion_factor,
+            'direction_conversion_factor': self.direction_conversion_factor
+        }
+    
     def _parse_point(self, point_text: str) -> tuple:
         """
         Parse point coordinates from text (space or comma separated).
@@ -124,9 +234,9 @@ class LandXMLReader:
         
         # Return (northing, easting) or (northing, easting, elevation)
         if len(coords) >= 3:
-            return (float(coords[1]), float(coords[0]), float(coords[2]))
+            return (float(coords[0]), float(coords[1]), float(coords[2]))
         else:
-            return (float(coords[1]), float(coords[0]))
+            return (float(coords[0]), float(coords[1]))
     
     def _parse_align_pis(self, alignment_elem: ET.Element) -> List[Dict]:
         """Parse alignment PI points"""
@@ -176,39 +286,6 @@ class LandXMLReader:
                 eq_list.append(eq_data)
         
         return eq_list
-    
-    def _parse_attributes(self, element: ET.Element, attr_map: Dict) -> Dict:
-        """
-        Parse element attributes based on mapping.
-        
-        Args:
-            element: XML element
-            attr_map: Dict mapping {xml_attr_name: (output_key, converter_func)}
-                     converter_func can be: float, int, str, or custom function
-        
-        Returns:
-            Dictionary with parsed attributes
-        """
-        result = {}
-        
-        for xml_attr, (output_key, converter) in attr_map.items():
-            if xml_attr in element.attrib:
-                value = element.attrib[xml_attr]
-                
-                try:
-                    if converter == 'float':
-                        result[output_key] = float(value)
-                    elif converter == 'int':
-                        result[output_key] = int(value)
-                    elif converter == 'radius':
-                        # Handle INF radius
-                        result[output_key] = float('inf') if value == 'INF' else float(value)
-                    else:
-                        result[output_key] = value
-                except (ValueError, AttributeError):
-                    continue
-        
-        return result
     
     def _parse_child_points(self, element: ET.Element, point_tags: List[str]) -> Dict:
         """
@@ -335,21 +412,26 @@ class LandXMLReader:
         attributes = self._parse_attributes(cgpoint_elem, config['attr_map'])
         cgpoint_data.update(attributes)
         
+        # Move 'code' to 'desc' if present (code is actually the description)
+        if 'code' in cgpoint_data and 'desc' not in cgpoint_data:
+            cgpoint_data['desc'] = cgpoint_data['code']
+            del cgpoint_data['code']
+        
         # Get point coordinates from element text
         point_text = cgpoint_elem.text
         if point_text:
             coords = self._parse_point(point_text.strip())
             if coords:
                 if len(coords) == 3:
-                    cgpoint_data['easting'] = coords[0]
-                    cgpoint_data['northing'] = coords[1]
+                    cgpoint_data['easting'] = coords[1]
+                    cgpoint_data['northing'] = coords[0]
                     cgpoint_data['elevation'] = coords[2]
                 else:
-                    cgpoint_data['easting'] = coords[0]
-                    cgpoint_data['northing'] = coords[1]
+                    cgpoint_data['easting'] = coords[1]
+                    cgpoint_data['northing'] = coords[0]
         
         return cgpoint_data
-    
+
     def _parse_surface_points(self, surface_elem: ET.Element) -> List[Dict]:
         """
         Parse P (Point) elements within a Surface Definition element.
@@ -386,8 +468,8 @@ class LandXMLReader:
                 if coords:
                     point_data = {
                         'id': point_id,
-                        'easting': coords[0],
-                        'northing': coords[1]
+                        'easting': coords[1],
+                        'northing': coords[0]
                     }
                     
                     # Add elevation if present
@@ -489,41 +571,85 @@ class LandXMLReader:
     
     def read_cgpoints(self) -> List[Dict]:
         """
-        Read all CgPoints from LandXML file.
+        Read all CgPoints from LandXML file, organized by groups.
+        Groups can be defined by <CgPoints name="..."> containers with pntRef references.
         
         Returns:
-            List of CgPoint data dictionaries
+            List of group dictionaries, each containing group name and list of points
         """
-        cgpoints = []
+        groups = []
         
         # Find CgPoints container
-        cgpoints_elem = self._find_element(self.root, 'CgPoints')
+        cgpoints_elements = self._find_all_elements(self.root, 'CgPoints')
         
-        if cgpoints_elem is None:
+        if not cgpoints_elements:
             print("Warning: No CgPoints element found in LandXML file")
-            return cgpoints
+            return groups
         
-        # Find all CgPoint elements
-        cgpoint_elements = self._find_all_elements(cgpoints_elem, 'CgPoint')
+        # First, parse all individual CgPoint elements to create a lookup dictionary
+        # Only parse direct children that are actual points (not nested groups)
+        all_points = {}
         
-        if not cgpoint_elements:
-            print("Warning: No CgPoint elements found in LandXML file")
-            return cgpoints
+        for cgpoints_elem in cgpoints_elements:
+            for child in cgpoints_elem:
+                tag = child.tag
+                if '}' in tag:
+                    tag = tag.split('}')[1]
+                
+                # Only parse CgPoint elements that are NOT CgPoints groups
+                if tag == 'CgPoint' and 'name' in child.attrib:
+                    try:
+                        cgpoint_data = self._parse_cgpoint(child)
+                        if 'name' in cgpoint_data:
+                            all_points[cgpoint_data['name']] = cgpoint_data
+                    except Exception as e:
+                        print(f"Warning: Failed to parse CgPoint: {str(e)}")
+                        continue
+            
+        # Track which points are referenced by groups
+        referenced_points = set()
         
-        # Parse each CgPoint
-        for cgpoint_elem in cgpoint_elements:
-            try:
-                cgpoint_data = self._parse_cgpoint(cgpoint_elem)
-                # Only add if point has at least name and coordinates
-                if 'name' in cgpoint_data and ('northing' in cgpoint_data or 'easting' in cgpoint_data):
-                    cgpoints.append(cgpoint_data)
-            except Exception as e:
-                print(f"Warning: Failed to parse CgPoint: {str(e)}")
-                continue
+        # Find all CgPoints group (nested <CgPoints name="...">)
+        for cgpoints_elem in cgpoints_elements:
+            tag = cgpoints_elem.tag
+            if '}' in tag:
+                tag = tag.split('}')[1]
+            
+            # Check if this is a CgPoints group container (has 'name' attribute)
+            if tag == 'CgPoints' and 'name' in cgpoints_elem.attrib:
+                group_name = cgpoints_elem.attrib['name']
+                group_points = []
+                
+                # Find all point references in this group
+                point_refs = self._find_all_elements(cgpoints_elem, 'CgPoint')
+                
+                for point_ref in point_refs:
+                    pnt_ref = point_ref.attrib.get('pntRef')
+                    if pnt_ref and pnt_ref in all_points:
+                        group_points.append(all_points[pnt_ref])
+                        referenced_points.add(pnt_ref)
+                
+                if group_points:
+                    groups.append({
+                        'name': group_name,
+                        'points': group_points
+                    })
+            
+        # Create a group for unreferenced points
+        unreferenced_points = []
+        for point_name, point_data in all_points.items():
+            if point_name not in referenced_points:
+                unreferenced_points.append(point_data)
         
-        self.cgpoints_data = cgpoints
-        return cgpoints
-    
+        if unreferenced_points:
+            groups.append({
+                'name': 'Ungrouped Points',
+                'points': unreferenced_points
+            })
+        
+        self.cgpoints_data = groups
+        return groups
+
     def read_surfaces(self) -> List[Dict]:
         """
         Read all Surfaces from LandXML file.
@@ -628,27 +754,44 @@ class LandXMLReader:
         if not self.cgpoints_data:
             self.read_cgpoints()
         
-        for cgpoint in self.cgpoints_data:
-            if cgpoint.get('name') == name:
-                return cgpoint
+        for group in self.cgpoints_data:
+            for cgpoint in group.get('points', []):
+                if cgpoint.get('name') == name:
+                    return cgpoint
         
         return None
-    
-    def get_cgpoints_by_code(self, code: str) -> List[Dict]:
+
+    def get_cgpoints_by_group(self, group_name: str) -> List[Dict]:
         """
-        Get all CgPoints with specified code.
+        Get all CgPoints in a specified group.
         
         Args:
-            code: Point code to filter by
+            group_name: Group name to filter by
             
         Returns:
-            List of CgPoint data dictionaries matching the code
+            List of CgPoint data dictionaries in the group
         """
         if not self.cgpoints_data:
             self.read_cgpoints()
         
-        return [pt for pt in self.cgpoints_data if pt.get('code') == code]
-    
+        for group in self.cgpoints_data:
+            if group.get('name') == group_name:
+                return group.get('points', [])
+        
+        return []
+
+    def get_cgpoint_group_names(self) -> List[str]:
+        """
+        Get list of all CgPoint group names in the file.
+        
+        Returns:
+            List of group names
+        """
+        if not self.cgpoints_data:
+            self.read_cgpoints()
+        
+        return [group.get('name', 'Unnamed') for group in self.cgpoints_data]
+
     def get_surface_by_name(self, name: str) -> Optional[Dict]:
         """
         Get Surface data by name.
@@ -690,8 +833,13 @@ class LandXMLReader:
         if not self.cgpoints_data:
             self.read_cgpoints()
         
-        return [pt.get('name', 'Unnamed') for pt in self.cgpoints_data]
-    
+        names = []
+        for group in self.cgpoints_data:
+            for pt in group.get('points', []):
+                names.append(pt.get('name', 'Unnamed'))
+        
+        return names
+
     def get_surface_names(self) -> List[str]:
         """
         Get list of all Surface names in the file.
@@ -718,10 +866,26 @@ class LandXMLReader:
     
     def get_cgpoint_count(self) -> int:
         """
-        Get number of CgPoints in the file.
+        Get total number of CgPoints in all groups.
         
         Returns:
             Count of points
+        """
+        if not self.cgpoints_data:
+            self.read_cgpoints()
+        
+        total = 0
+        for group in self.cgpoints_data:
+            total += len(group.get('points', []))
+        
+        return total
+
+    def get_cgpoint_group_count(self) -> int:
+        """
+        Get number of CgPoint groups in the file.
+        
+        Returns:
+            Count of groups
         """
         if not self.cgpoints_data:
             self.read_cgpoints()
@@ -755,13 +919,13 @@ class LandXMLReader:
         
         if not self.surfaces_data:
             self.read_surfaces()
-        
         return {
             'filepath': str(self.filepath),
             'alignment_count': len(self.alignments_data),
-            'cgpoint_count': len(self.cgpoints_data),
+            'cgpoint_group_count': len(self.cgpoints_data),
+            'cgpoint_count': sum(len(g.get('points', [])) for g in self.cgpoints_data),
             'surface_count': len(self.surfaces_data),
             'alignments': self.alignments_data,
-            'cgpoints': self.cgpoints_data,
+            'cgpoint_groups': self.cgpoints_data,
             'surfaces': self.surfaces_data
         }

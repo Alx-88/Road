@@ -2,6 +2,7 @@
 
 import math
 from typing import Dict, List, Tuple, Optional, Union
+from ..functions.coordinate_system import CoordinateSystem
 from .line import Line
 from .curve import Curve
 from .spiral import Spiral
@@ -57,7 +58,16 @@ class Alignment:
         
         # Alignment start point (optional)
         self.start_point = data.get('start', None)
-        
+
+        # Coordinate system for transformations
+        coord_sys_data = data['coordinateSystem'] if 'coordinateSystem' in data else {'system_type': 'global'}
+        self.coordinate_system = CoordinateSystem(
+            system_type=coord_sys_data.get('system_type', 'global'),
+            origin=tuple(coord_sys_data['origin']) if 'origin' in coord_sys_data else None,
+            rotation=coord_sys_data.get('rotation', None),
+            swap=coord_sys_data.get('swap', False)
+        )
+
         # Alignment PI points (Point of Intersection)
         self.align_pis: List[Dict] = []
         
@@ -86,6 +96,40 @@ class Alignment:
         # Validate and compute alignment properties
         self._validate_alignment()
         self._compute_alignment_properties()
+    
+    def set_coordinate_system(self, system_type: str, 
+                            origin: Optional[Tuple[float, float]] = None,
+                            rotation: Optional[float] = None):
+        """
+        Set the coordinate system for alignment calculations.
+        
+        Args:
+            system_type: 'global', 'local', or 'custom'
+            origin: Origin point for custom system (x, y)
+            rotation: Rotation angle in radians
+        """
+        if system_type == 'local':
+            # Local system uses alignment start point as origin
+            origin = self.start_point
+            rotation = self._calculate_start_direction()
+        
+        self.coordinate_system.set_system(system_type, origin, rotation)
+    
+    def get_coordinate_system(self) -> CoordinateSystem:
+        """Get the current coordinate system object"""
+        return self.coordinate_system
+    
+    def _calculate_start_direction(self) -> float:
+        """Calculate direction at alignment start"""
+        if not self.elements:
+            return 0.0
+        
+        first_elem = self.elements[0]
+        if hasattr(first_elem, 'direction'):
+            return first_elem.direction
+        elif hasattr(first_elem, 'dir_start'):
+            return first_elem.dir_start
+        return 0.0
     
     def _parse_align_pis(self, align_pis_list: List[Dict]):
         """Parse and store alignment PI points"""
@@ -155,13 +199,11 @@ class Alignment:
         """Parse and create geometry elements from CoordGeom list"""
         
         for i, geom_data in enumerate(coord_geom_list):
-            # Determine geometry type
             geom_type = geom_data.get('Type', None)
             
             if geom_type is None:
                 raise ValueError(f"Geometry element {i} missing 'Type' field")
             
-            # Create appropriate geometry object
             try:
                 if geom_type == 'Line':
                     element = Line(geom_data)
@@ -172,11 +214,14 @@ class Alignment:
                 else:
                     raise ValueError(f"Unknown geometry type: {geom_type}")
                 
+                # Store reference to parent alignment's coordinate system
+                element._coordinate_system = self.coordinate_system
+                
                 self.elements.append(element)
                 
             except Exception as e:
                 raise ValueError(f"Error parsing geometry element {i} ({geom_type}): {str(e)}")
-    
+
     def _validate_alignment(self):
         """Validate alignment continuity and geometry"""
         
@@ -420,9 +465,11 @@ class Alignment:
             elem_sta_end_internal = elem_sta_start_internal + element.get_length()
             
             if elem_sta_start_internal <= internal_station <= elem_sta_end_internal:
-                # Calculate distance along element
                 distance = internal_station - elem_sta_start_internal
-                return element.get_point_at_distance(distance)
+                global_point = element.get_point_at_distance(distance)
+                
+                # Transform to current coordinate system
+                return self.coordinate_system.transform_to_system(global_point)
         
         raise ValueError(f"No element found at station {station}")
     
@@ -460,11 +507,18 @@ class Alignment:
             
             if elem_sta_start_internal <= internal_station <= elem_sta_end_internal:
                 distance = internal_station - elem_sta_start_internal
-                return element.get_orthogonal(distance, side)
+                global_point, global_vector = element.get_orthogonal(distance, side)
+                
+                # Transform both point and vector
+                point = self.coordinate_system.transform_to_system(global_point)
+                vector = self.coordinate_system.transform_vector_to_system(global_vector)
+                
+                return point, vector
         
         raise ValueError(f"No element found at station {station}")
 
-    def get_station_offset(self, point: Tuple[float, float]) -> Optional[Tuple[float, float]]:
+    def get_station_offset(self, point: Tuple[float, float], 
+                          input_system: str = 'current') -> Optional[Tuple[float, float]]:
         """
         Calculates the station and offset of a point relative to the alignment.
         
@@ -473,9 +527,10 @@ class Alignment:
 
         Args:
             point: (x, y) coordinates of the point to query.
+            input_system: 'current' - same as alignment's system, 'global' - global coords
 
         Returns:
-            A tuple (station, offset) if a valid projection is found, None otherwise.
+            A tuple (station, offset) if a valid projection is found, (None, None) otherwise.
             - station: Displayed station value of the closest point on the alignment.
             - offset: Perpendicular offset distance from the alignment.
                       Convention:
@@ -483,6 +538,12 @@ class Alignment:
                       - Positive (+) value means the point is to the RIGHT of the alignment.
         """
         
+        # Transform input point to global if needed
+        if input_system == 'current' and not self.coordinate_system.is_global():
+            global_point = self.coordinate_system.transform_from_system(point)
+        else:
+            global_point = point
+
         min_offset_dist = float('inf')
         best_station = None
         best_signed_offset = None
@@ -492,7 +553,7 @@ class Alignment:
                 # 1. Project the point onto the element's geometry.
                 # This should return the distance along the element
                 # from its start point to the closest projected point.
-                distance_along = element.project_point(point)
+                distance_along = element.project_point(global_point)
 
                 if distance_along is None:
                     # The projection does not fall on this element segment
@@ -502,8 +563,8 @@ class Alignment:
                 projected_point = element.get_point_at_distance(distance_along)
 
                 # 3. Calculate the magnitude of the offset distance
-                dx = point[0] - projected_point[0]
-                dy = point[1] - projected_point[1]
+                dx = global_point[0] - projected_point[0]
+                dy = global_point[1] - projected_point[1]
                 current_offset_dist = math.sqrt(dx**2 + dy**2)
 
                 # 4. Check if this is the closest projection found so far
@@ -791,24 +852,53 @@ class Alignment:
         return stations_list
 
     def get_align_pis(self) -> List[Dict]:
-        """Return list of all alignment PI points"""
-        return self.align_pis.copy()
-    
+        """
+        Return list of all alignment PI points with coordinates transformed 
+        to current coordinate system.
+        
+        Returns:
+            List of PI dictionaries with point coordinates in current coordinate system
+        """
+        transformed_pis = []
+        
+        for pi in self.align_pis:
+            # Copy PI data
+            pi_copy = pi.copy()
+            
+            # Transform point coordinates to current coordinate system
+            if pi_copy['point'] is not None:
+                global_point = pi_copy['point']
+                pi_copy['point'] = self.coordinate_system.transform_to_system(global_point)
+            
+            transformed_pis.append(pi_copy)
+        
+        return transformed_pis
+
+
     def get_pi_at_station(self, station: float, tolerance: float = 1e-6) -> Optional[Dict]:
         """
-        Find PI point at or near given station.
+        Find PI point at or near given station with coordinates transformed 
+        to current coordinate system.
         
         Args:
             station: Station value to query
             tolerance: Maximum station difference to consider as match
             
         Returns:
-            PI dictionary if found, None otherwise
+            PI dictionary with point coordinates in current coordinate system if found, 
+            None otherwise
         """
-        
         for pi in self.align_pis:
             if pi['station'] is not None and abs(pi['station'] - station) <= tolerance:
-                return pi.copy()
+                # Copy PI data
+                pi_copy = pi.copy()
+                
+                # Transform point coordinates to current coordinate system
+                if pi_copy['point'] is not None:
+                    global_point = pi_copy['point']
+                    pi_copy['point'] = self.coordinate_system.transform_to_system(global_point)
+                
+                return pi_copy
         
         return None
     
@@ -825,19 +915,38 @@ class Alignment:
         return len(self.elements)
     
     def get_start_point(self) -> Tuple[float, float]:
-        """Return alignment start point coordinates"""
+        """
+        Return alignment start point coordinates in current coordinate system.
+        
+        Returns:
+            (x, y) coordinates of alignment start point
+        """
         if self.start_point is not None:
-            return self.start_point
-        if not self.elements:
+            global_point = self.start_point
+        elif self.elements:
+            global_point = self.elements[0].get_start_point()
+        else:
             raise ValueError("Alignment has no elements")
-        return self.elements[0].get_start_point()
-    
+        
+        # Transform to current coordinate system
+        return self.coordinate_system.transform_to_system(global_point)
+
+
     def get_end_point(self) -> Tuple[float, float]:
-        """Return alignment end point coordinates"""
+        """
+        Return alignment end point coordinates in current coordinate system.
+        
+        Returns:
+            (x, y) coordinates of alignment end point
+        """
         if not self.elements:
             raise ValueError("Alignment has no elements")
-        return self.elements[-1].get_end_point()
-    
+        
+        global_point = self.elements[-1].get_end_point()
+        
+        # Transform to current coordinate system
+        return self.coordinate_system.transform_to_system(global_point)
+
     def get_length(self) -> float:
         """Return total alignment length (geometric, not adjusted by equations)"""
         return self.length
@@ -850,14 +959,21 @@ class Alignment:
         """Return alignment end station (displayed, with equation adjustments)"""
         internal_end = self.station_to_internal(self.sta_start) + self.length
         return self.internal_to_station(internal_end)
-    
+        
     def to_dict(self) -> Dict:
         """
         Export alignment properties as dictionary.
+        Note: Coordinates in the dictionary are returned in the GLOBAL coordinate system,
+        regardless of the current coordinate system setting.
         
         Returns:
             Dictionary containing alignment metadata and all geometry elements
         """
+        # Get points in global coordinate system for export
+        global_start = self.start_point if self.start_point is not None else \
+                    (self.elements[0].get_start_point() if self.elements else None)
+        
+        global_end = self.elements[-1].get_end_point() if self.elements else None
         
         return {
             'name': self.name,
@@ -865,14 +981,15 @@ class Alignment:
             'length': self.length,
             'staStart': self.sta_start,
             'staEnd': self.get_sta_end(),
-            'start': self.start_point,
-            'endPoint': self.get_end_point(),
+            'start': global_start,
+            'endPoint': global_end,
             'elementCount': len(self.elements),
             'piCount': len(self.align_pis),
             'stationEquationCount': len(self.station_equations),
             'AlignPIs': self.align_pis,
             'StaEquation': self.station_equations,
-            'CoordGeom': [elem.to_dict() for elem in self.elements]
+            'CoordGeom': [elem.to_dict() for elem in self.elements],
+            'coordinateSystem': self.coordinate_system.to_dict()
         }
     
     def __repr__(self) -> str:
