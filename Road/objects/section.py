@@ -69,7 +69,7 @@ class Section(GeoObject):
                 
                 offset_elevation = []
                 for point in projected_points:
-                    point = point.add(terrain.Geolocation.Base).sub(terrain.Placement.Base).multiply(0.001)
+                    point = point.sub(alignment.Placement.Base).multiply(0.001)
                     station, offset = alignment.Model.get_station_offset([*point])
                     if offset: offset_elevation.append([offset, point.z])
                     if horizon==0 or point.z < horizon: horizon = point.z
