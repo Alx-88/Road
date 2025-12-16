@@ -171,100 +171,6 @@ class TaskLandXMLImport(TaskPanel):
         geom_group.setExpanded(False)
         geom_group.setFlags(geom_group.flags() & ~Qt.ItemIsSelectable)
         
-        for i, geom in enumerate(geom_elements):
-            geom_type = geom.get('Type', 'Unknown')
-            geom_length = geom.get('length', geom.get('Length', 0))
-            
-            geom_item = QTreeWidgetItem(geom_group)
-            geom_item.setText(0, f'{i+1}. {geom_type}')
-            geom_item.setText(1, f'Length: {geom_length:.2f}')
-            geom_item.setFlags(geom_item.flags() & ~Qt.ItemIsSelectable)
-            
-            # Add specific attributes based on type
-            if geom_type == 'Curve':
-                radius = geom.get('radius', 0)
-                delta = geom.get('delta', 0)
-                geom_item.setText(1, f'R={radius:.2f}, Δ={delta:.4f} rad')
-            elif geom_type == 'Spiral':
-                r_start = geom.get('StartRadius', float('inf'))
-                r_end = geom.get('EndRadius', float('inf'))
-                r_start_str = 'INF' if r_start == float('inf') else f'{r_start:.2f}'
-                r_end_str = 'INF' if r_end == float('inf') else f'{r_end:.2f}'
-                geom_item.setText(1, f'Rs={r_start_str}, Re={r_end_str}, L={geom_length:.2f}')
-    
-    def _add_profile(self, parent_item, profile_data):
-        """Adds profile data as children."""
-        profile_name = profile_data.get('name', 'Unnamed Profile')
-        
-        profile_item = QTreeWidgetItem(parent_item)
-        profile_item.setText(0, f'Profile: {profile_name}')
-        profile_item.setExpanded(False)
-        profile_item.setFlags(profile_item.flags() & ~Qt.ItemIsSelectable)
-        
-        # Add ProfAlign if present
-        if 'ProfAlign' in profile_data:
-            self._add_profalign(profile_item, profile_data['ProfAlign'])
-        
-        # Add ProfSurf elements if present
-        if 'ProfSurf' in profile_data:
-            self._add_profsurf_list(profile_item, profile_data['ProfSurf'])
-    
-    def _add_profalign(self, parent_item, profalign_data):
-        """Adds vertical alignment (ProfAlign) data."""
-        profalign_name = profalign_data.get('name', 'Design Profile')
-        geom_elements = profalign_data.get('geometry', [])
-        
-        profalign_item = QTreeWidgetItem(parent_item)
-        profalign_item.setText(0, f'Vertical Alignment: {profalign_name}')
-        profalign_item.setText(1, f'({len(geom_elements)} elements)')
-        profalign_item.setExpanded(False)
-        profalign_item.setFlags(profalign_item.flags() & ~Qt.ItemIsSelectable)
-        
-        # Add geometry elements
-        for i, geom in enumerate(geom_elements):
-            geom_type = geom.get('Type', 'Unknown')
-            
-            geom_item = QTreeWidgetItem(profalign_item)
-            geom_item.setText(0, f'{i+1}. {geom_type}')
-            
-            if geom_type == 'PVI':
-                station = geom.get('station', 0)
-                elevation = geom.get('elevation', 0)
-                geom_item.setText(1, f'Sta: {station:.2f}, Elev: {elevation:.3f}')
-            
-            elif geom_type in ['ParaCurve', 'CircCurve', 'UnsymParaCurve']:
-                length = geom.get('length', 0)
-                pvi = geom.get('pvi', {})
-                if pvi:
-                    station = pvi.get('station', 0)
-                    elevation = pvi.get('elevation', 0)
-                    geom_item.setText(1, f'L={length:.2f}, PVI: Sta {station:.2f}, Elev {elevation:.3f}')
-                else:
-                    geom_item.setText(1, f'Length: {length:.2f}')
-            
-            elif geom_type == 'PntList2D':
-                points = geom.get('points', [])
-                geom_item.setText(1, f'{len(points)} points')
-            
-            geom_item.setFlags(geom_item.flags() & ~Qt.ItemIsSelectable)
-    
-    def _add_profsurf_list(self, parent_item, profsurf_list):
-        """Adds surface profile (ProfSurf) data."""
-        profsurf_group = QTreeWidgetItem(parent_item)
-        profsurf_group.setText(0, 'Surface Profiles')
-        profsurf_group.setText(1, f'({len(profsurf_list)} surfaces)')
-        profsurf_group.setExpanded(False)
-        profsurf_group.setFlags(profsurf_group.flags() & ~Qt.ItemIsSelectable)
-        
-        for profsurf_data in profsurf_list:
-            surf_name = profsurf_data.get('name', 'Unnamed Surface')
-            points = profsurf_data.get('points', [])
-            
-            profsurf_item = QTreeWidgetItem(profsurf_group)
-            profsurf_item.setText(0, surf_name)
-            profsurf_item.setText(1, f'{len(points)} points')
-            profsurf_item.setFlags(profsurf_item.flags() & ~Qt.ItemIsSelectable)
-    
     def _add_station_equations(self, parent_item, equations):
         """Adds station equations as children."""
         eq_group = QTreeWidgetItem(parent_item)
@@ -304,6 +210,71 @@ class TaskLandXMLImport(TaskPanel):
                 pi_item.setText(1, f'({point[0]:.2f}, {point[1]:.2f})')
             
             pi_item.setFlags(pi_item.flags() & ~Qt.ItemIsSelectable)
+    
+    def _add_profile(self, parent_item, profile_data):
+        """Adds profile data as children."""
+        profile_name = profile_data.get('name', 'Unnamed Profile')
+        
+        profile_item = QTreeWidgetItem(parent_item)
+        profile_item.setText(0, f'Profile: {profile_name}')
+        profile_item.setExpanded(False)
+        profile_item.setFlags(profile_item.flags() & ~Qt.ItemIsSelectable)
+        
+        # Add ProfAlign elements (can be single dict or list)
+        if 'ProfAlign' in profile_data:
+            profalign_data = profile_data['ProfAlign']
+            
+            # Handle both single ProfAlign and list of ProfAlign
+            if isinstance(profalign_data, dict):
+                # Single ProfAlign
+                self._add_profalign(profile_item, profalign_data)
+            elif isinstance(profalign_data, list):
+                # Multiple ProfAlign
+                if len(profalign_data) > 1:
+                    # Create a group item for multiple profiles
+                    profalign_group = QTreeWidgetItem(profile_item)
+                    profalign_group.setText(0, 'Design Profiles')
+                    profalign_group.setText(1, f'({len(profalign_data)} profiles)')
+                    profalign_group.setExpanded(False)
+                    profalign_group.setFlags(profalign_group.flags() & ~Qt.ItemIsSelectable)
+                    
+                    for pa_data in profalign_data:
+                        self._add_profalign(profalign_group, pa_data)
+                elif len(profalign_data) == 1:
+                    # Single ProfAlign in list
+                    self._add_profalign(profile_item, profalign_data[0])
+        
+        # Add ProfSurf elements if present
+        if 'ProfSurf' in profile_data:
+            self._add_profsurf_list(profile_item, profile_data['ProfSurf'])
+    
+    def _add_profalign(self, parent_item, profalign_data):
+        """Adds vertical alignment (ProfAlign) data."""
+        profalign_name = profalign_data.get('name', 'Design Profile')
+        geom_elements = profalign_data.get('geometry', [])
+        
+        profalign_item = QTreeWidgetItem(parent_item)
+        profalign_item.setText(0, f'Vertical Alignment: {profalign_name}')
+        profalign_item.setText(1, f'({len(geom_elements)} elements)')
+        profalign_item.setExpanded(False)
+        profalign_item.setFlags(profalign_item.flags() & ~Qt.ItemIsSelectable)
+        
+    def _add_profsurf_list(self, parent_item, profsurf_list):
+        """Adds surface profile (ProfSurf) data."""
+        profsurf_group = QTreeWidgetItem(parent_item)
+        profsurf_group.setText(0, 'Surface Profiles')
+        profsurf_group.setText(1, f'({len(profsurf_list)} surfaces)')
+        profsurf_group.setExpanded(False)
+        profsurf_group.setFlags(profsurf_group.flags() & ~Qt.ItemIsSelectable)
+        
+        for profsurf_data in profsurf_list:
+            surf_name = profsurf_data.get('name', 'Unnamed Surface')
+            points = profsurf_data.get('points', [])
+            
+            profsurf_item = QTreeWidgetItem(profsurf_group)
+            profsurf_item.setText(0, surf_name)
+            profsurf_item.setText(1, f'{len(points)} points')
+            profsurf_item.setFlags(profsurf_item.flags() & ~Qt.ItemIsSelectable)
     
     def _add_cgpoints_items(self, root_item):
         """Adds CgPoints items to the tree organized by groups."""
@@ -444,26 +415,6 @@ class TaskLandXMLImport(TaskPanel):
             points_group.setExpanded(False)
             points_group.setFlags(points_group.flags() & ~Qt.ItemIsSelectable)
             
-            # Show first 5 points as example
-            for i, point in enumerate(points[:5]):
-                point_id = point.get('id', 'Unknown')
-                northing = point.get('northing', 0)
-                easting = point.get('easting', 0)
-                elevation = point.get('elevation', 'N/A')
-                
-                point_item = QTreeWidgetItem(points_group)
-                point_item.setText(0, f'ID: {point_id}')
-                if elevation != 'N/A':
-                    point_item.setText(1, f'N:{northing:.2f}, E:{easting:.2f}, Z:{elevation:.2f}')
-                else:
-                    point_item.setText(1, f'N:{northing:.2f}, E:{easting:.2f}')
-                point_item.setFlags(point_item.flags() & ~Qt.ItemIsSelectable)
-            
-            if len(points) > 5:
-                more_item = QTreeWidgetItem(points_group)
-                more_item.setText(0, f'... and {len(points) - 5} more points')
-                more_item.setFlags(more_item.flags() & ~Qt.ItemIsSelectable)
-        
         # Add faces summary
         faces = surface_data.get('faces', [])
         if faces:
