@@ -160,12 +160,33 @@ class ViewTracker:
             "Bracketright": coin.SoKeyboardEvent.BRACKETRIGHT,
             "Grave": coin.SoKeyboardEvent.GRAVE}
 
+    def _set_selection_enabled(self, value):
+        """
+        Toggle selection handling on the SoFCUnifiedSelection root node.
+        Handles field name differences between FreeCAD versions:
+          - FreeCAD 1.1+: 'selectionEnabled'  (renamed in PR #19420)
+          - FreeCAD 1.0:  'selectionRole'     (original name)
+        """
+        if self.root is None:
+            return
+
+        # FreeCAD 1.1+: try the new field name first
+        field = self.root.getField("selectionEnabled")
+
+        # FreeCAD 1.0: fall back to the old field name
+        if field is None:
+            field = self.root.getField("selectionRole")
+
+        if field is not None:
+            field.setValue(value)
+        else:
+            print("Warning: Could not find selection toggle field on scene graph root")
+
     def _is_view_valid(self):
-        """Check if view is still valid and accessible"""
+        """Check if the view is still valid and accessible"""
         try:
             if not self.view:
                 return False
-            # Try to access a view property to check if it's still valid
             _ = self.view.getSceneGraph()
             return True
         except (RuntimeError, AttributeError):
@@ -175,23 +196,23 @@ class ViewTracker:
         """Start tracking events"""
         if self.is_active:
             return
-        
+
         if not self._is_view_valid():
             raise RuntimeError("View is not valid, cannot start tracker")
-        
+
         try:
             if not self.selection:
                 self.root = self.view.getSceneGraph()
-                self.root.getField("selectionRole").setValue(0)
+                self._set_selection_enabled(False)
 
             self.callback = self.view.addEventCallbackPivy(
                 self.eventids[self.eventid], self.tracker)
 
             self.cancel = self.view.addEventCallbackPivy(
                 self.eventids["Keyboard"], self.tracker)
-            
+
             self.is_active = True
-            
+
         except Exception as e:
             print(f"Error starting ViewTracker: {e}")
             self.is_active = False
@@ -203,24 +224,25 @@ class ViewTracker:
             event = callback.getEvent()
 
             if event.getTypeId().isDerivedFrom(self.eventids["Location"]):
-                if self.eventid == "Location" and self.function: 
+                if self.eventid == "Location" and self.function:
                     self.function(callback)
-        
+
             elif event.getTypeId().isDerivedFrom(self.eventids["Keyboard"]):
                 if event.getKey() == self.keys.get("Escape") and event.getState() == self.states.get("Down"):
-                    if self.cancelable: 
+                    if self.cancelable:
                         self.stop(True)
 
                 elif event.getKey() == self.keys.get(self.key) and event.getState() == self.states.get(self.state):
                     print(f"Key '{self.key}' pressed with state '{self.state}'")
-                    if self.eventid == "Keyboard" and self.function: 
+                    if self.eventid == "Keyboard" and self.function:
                         self.function(callback)
 
             elif event.getTypeId().isDerivedFrom(self.eventids["Mouse"]):
                 if event.getButton() == self.buttons.get(self.key) and event.getState() == self.states.get(self.state):
                     print(f"Mouse button '{self.key}' clicked with state '{self.state}'")
-                    if self.eventid == "Mouse" and self.function: 
+                    if self.eventid == "Mouse" and self.function:
                         self.function(callback)
+
         except Exception as e:
             print(f"Error in tracker callback: {e}")
 
@@ -228,27 +250,27 @@ class ViewTracker:
         """Stop tracking events"""
         if not self.is_active:
             return
-        
+
         self.is_active = False
-        
+
         # Check if view is still valid before trying to remove callbacks
         if not self._is_view_valid():
-            # View is already deleted, just cleanup references
+            # View already deleted — just clean up references
             self.callback = None
             self.cancel = None
             self.root = None
             self.view = None
             return
-        
+
         try:
-            # Restore selection role
+            # Restore selection on the root node
             if not self.selection and self.root:
                 try:
-                    self.root.getField("selectionRole").setValue(1)
-                except:
-                    pass
+                    self._set_selection_enabled(True)
+                except Exception as e:
+                    print(f"Warning: Could not restore selection field: {e}")
 
-            # Remove event callbacks
+            # Remove the main event callback
             if self.callback:
                 try:
                     self.view.removeEventCallbackPivy(
@@ -256,6 +278,7 @@ class ViewTracker:
                 except Exception as e:
                     print(f"Warning: Could not remove event callback: {e}")
 
+            # Remove the keyboard (cancel) callback
             if self.cancel:
                 try:
                     self.view.removeEventCallbackPivy(
@@ -263,17 +286,17 @@ class ViewTracker:
                 except Exception as e:
                     print(f"Warning: Could not remove keyboard callback: {e}")
 
-            if canceled: 
+            if canceled:
                 FreeCAD.Console.PrintWarning("Canceled\n")
-                
+
         except Exception as e:
             print(f"Error in stop(): {e}")
         finally:
-            # Always cleanup references
+            # Always clean up references
             self.callback = None
             self.cancel = None
             self.root = None
-    
+
     def __del__(self):
         """Cleanup on deletion"""
         try:
