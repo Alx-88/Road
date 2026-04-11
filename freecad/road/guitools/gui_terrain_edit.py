@@ -37,7 +37,7 @@ class TerrainAddPoint:
                 point = picked_point.getPoint().getValue()
                 vector = FreeCAD.Vector(*point)
 
-                origin = FreeCAD.ActiveDocument.getObject("GeoOrigin")
+                origin = FreeCAD.ActiveDocument.getObject("CoordinateSystem")
                 vector = vector.add(origin.Base)
                 operations = self.terrain.Operations
                 operations.append({"type":"Add Point", "index":index, "vector":[*vector]})

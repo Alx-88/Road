@@ -44,7 +44,7 @@ class GeoPointsAdd:
         position = event.getPosition() #Window position
         view = FreeCADGui.ActiveDocument.ActiveView
         coord = view.getPoint(tuple(position.getValue()))
-        origin = FreeCAD.ActiveDocument.getObject("GeoOrigin")
+        origin = FreeCAD.ActiveDocument.getObject("CoordinateSystem")
         coordinate = coord.add(origin.Base)
 
         model = self.cluster.Model.copy()
