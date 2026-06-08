@@ -2,16 +2,19 @@
 
 """Provides functions and lists of commands to set up Road menus and toolbars."""
 
+
 def get_io_commands():
     """Return the input/output commands list."""
     return ["GeoPoints Import",
             "GeoPoints Export",
             "LandXML Import"]
 
+
 def get_point_commands():
     """Return the point commands list."""
     return ["GeoPoints Create",
             "GeoPoints Add"]
+
 
 def get_surface_commands():
     """Return the surface commands list."""
@@ -19,6 +22,7 @@ def get_surface_commands():
             "Terrain Add Cluster",
             "Terrain Edit",
             "Terrain Demolish"]
+
 
 def get_alignment_commands():
     """Return the alignment commands list."""
@@ -28,7 +32,9 @@ def get_alignment_commands():
             "Alignment Object",
             "Profile Frame Create",
             "Profile Create/Edit",
-            "Profile Add"]
+            "Profile Add",
+            "Working Plane Create"]
+
 
 def get_road_commands():
     """Return the section commands list."""
@@ -40,6 +46,7 @@ def get_road_commands():
             "Component Line",
             "Component Shape"]
 
+
 def get_section_commands():
     """Return the section commands list."""
     return ["Region Create",
@@ -47,12 +54,15 @@ def get_section_commands():
             "Compute Areas",
             "Create Table"]
 
+
 def get_geoline_commands():
     """Return the geoline commands list."""
     return ["Create Pad"]
 
+
 def init_toolbar(workbench, toolbar, cmd_list):
     """Initialize a toolbar.
+
 
     Parameters
     ----------
@@ -65,6 +75,7 @@ def init_toolbar(workbench, toolbar, cmd_list):
     cmd_list: list of strings or list of strings and tuples
         See f.e. the return value of get_draft_drawing_commands.
     """
+
     for cmd in cmd_list:
         if isinstance(cmd, tuple):
             if len(cmd) == 1:
@@ -72,8 +83,10 @@ def init_toolbar(workbench, toolbar, cmd_list):
         else:
             workbench.appendToolbar(toolbar, [cmd])
 
+
 def init_menu(workbench, menu_list, cmd_list):
     """Initialize a menu.
+
 
     Parameters
     ----------
@@ -87,6 +100,7 @@ def init_menu(workbench, menu_list, cmd_list):
     cmd_list: list of strings or list of strings and tuples
         See f.e. the return value of get_draft_drawing_commands.
     """
+
     for cmd in cmd_list:
         if isinstance(cmd, tuple):
             if len(cmd) == 2:
