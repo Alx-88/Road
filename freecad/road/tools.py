@@ -18,4 +18,5 @@ from .guitools import (
     gui_terrain_create,
     gui_terrain_object,
     gui_terrain_edit,
-    gui_terrain_demolish)
+    gui_terrain_demolish,
+    gui_working_plane)
