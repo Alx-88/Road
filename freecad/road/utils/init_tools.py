@@ -44,9 +44,12 @@ def get_section_commands():
     """Return the section commands list."""
     return ["Region Create",
             "Section Create",
-            "Datum Plane Create",
             "Compute Areas",
             "Create Table"]
+
+def get_datum_plane_commands():
+    """Return the datum plane commands list."""
+    return ["Datum Plane Create"]
 
 def get_geoline_commands():
     """Return the geoline commands list."""

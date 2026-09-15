@@ -25,6 +25,7 @@ class RoadWorkbench(FreeCADGui.Workbench):
         self.alignment_commands = it.get_alignment_commands()
         self.road_commands = it.get_road_commands()
         self.section_commands = it.get_section_commands()
+        self.datum_plane_commands = it.get_datum_plane_commands()
         self.line3D_commands = it.get_geoline_commands()
         self.io_commands = it.get_io_commands()
 
@@ -44,6 +45,9 @@ class RoadWorkbench(FreeCADGui.Workbench):
         it.init_toolbar(self,
                         "Section",
                         self.section_commands)
+        it.init_toolbar(self,
+                        "DatumPlane",
+                        self.datum_plane_commands)
         it.init_toolbar(self,
                         "GeoLine",
                         self.line3D_commands)

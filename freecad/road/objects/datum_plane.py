@@ -51,16 +51,13 @@ class DatumPlane(GeoObject):
 
     def execute(self, obj):
         """Generate the datum plane shape."""
-        # Get parent groups
+        # Get parent group (DatumPlanes)
         datum_planes = obj.getParentGroup()
         if not datum_planes:
             return
 
-        region = datum_planes.getParentGroup()
-        if not region:
-            return
-
-        alignment = region.getParentGroup()
+        # Get alignment from parent of datum_planes group
+        alignment = datum_planes.getParentGroup()
         if not alignment or not hasattr(alignment, 'Model'):
             return
 

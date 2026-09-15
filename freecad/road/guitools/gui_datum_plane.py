@@ -26,22 +26,9 @@ class DatumPlaneCreate:
     def Activated(self):
         alignments = FreeCAD.ActiveDocument.getObject("Alignments")
         self.alignment_selector = SingleSelection(alignments)
-        self.alignment_selector.combo_box.currentTextChanged.connect(self.region_update)
 
-        self.region_selector = SingleSelection()
-        self.region_update()
-
-        self.form = [self.alignment_selector, self.region_selector]
+        self.form = [self.alignment_selector]
         FreeCADGui.Control.showDialog(self)
-
-    def region_update(self):
-        """Update region selector when alignment changes."""
-        alignment = self.alignment_selector.selected_object
-        if alignment:
-            for item in alignment.Group:
-                if hasattr(item, 'Proxy') and item.Proxy.Type == "Road::Regions":
-                    self.region_selector.set_group(item)
-                    break
 
     def accept(self):
         """Create datum plane at selected position."""
@@ -53,17 +40,16 @@ class DatumPlaneCreate:
     def set_placement(self, callback):
         """Set the placement of the datum plane based on mouse position."""
         alignment = self.alignment_selector.selected_object
-        region = self.region_selector.selected_object
 
-        if not alignment or not region:
-            FreeCAD.Console.PrintError("No alignment or region selected\n")
+        if not alignment:
+            FreeCAD.Console.PrintError("No alignment selected\n")
             self.tracker.stop()
             return
 
-        # Find or create DatumPlanes group
+        # Find or create DatumPlanes group directly under alignment
         datum_planes_group = None
-        for item in region.Group:
-            if hasattr(item, 'Proxy') and item.Proxy.Type == "Road::DatumPlanes":
+        for item in alignment.Group:
+            if hasattr(item, 'Proxy') and hasattr(item.Proxy, 'Type') and item.Proxy.Type == "Road::DatumPlanes":
                 datum_planes_group = item
                 break
 
@@ -71,7 +57,7 @@ class DatumPlaneCreate:
             datum_planes_group = FreeCAD.ActiveDocument.addObject("App::DocumentObjectGroup", "DatumPlanes")
             # Set a property to identify the group type
             datum_planes_group.addProperty("App::PropertyString", "Type").Type = "Road::DatumPlanes"
-            region.addObject(datum_planes_group)
+            alignment.addObject(datum_planes_group)
 
         # Create datum plane
         datum_plane = make_datum_plane.create()
