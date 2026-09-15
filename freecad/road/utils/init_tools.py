@@ -44,6 +44,7 @@ def get_section_commands():
     """Return the section commands list."""
     return ["Region Create",
             "Section Create",
+            "Datum Plane Create",
             "Compute Areas",
             "Create Table"]
 

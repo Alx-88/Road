@@ -9,6 +9,7 @@ that is, those actions that can be called from menus and buttons.
 # Functions
 from .guitools import (
     gui_alignment,
+    gui_datum_plane,
     gui_geoline,
     gui_geopoint,
     gui_io,
