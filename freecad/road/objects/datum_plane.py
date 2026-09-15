@@ -47,6 +47,10 @@ class DatumPlane(GeoObject):
             "App::PropertyString", "Name", "Base",
             "Datum plane name").Name = "DatumPlane"
 
+        obj.addProperty(
+            "App::PropertyString", "ProfileName", "Base",
+            "Profile name for elevation reference").ProfileName = ""
+
         obj.Proxy = self
 
     def execute(self, obj):
@@ -62,17 +66,34 @@ class DatumPlane(GeoObject):
             return
 
         try:
-            # Get point at station along alignment
-            tuple_coord, tuple_vec = alignment.Model.get_orthogonal_at_station(
-                obj.Station, "left"
-            )
-
-            # Convert to FreeCAD coordinates using zero_referance
-            from ..utils.support import zero_referance
-            coord = zero_referance(alignment.Model.get_start_point(), [tuple_coord])
-
-            # Get the center point
-            center = coord[0]
+            # Get point at station along alignment with elevation
+            if obj.ProfileName and alignment.Model.profiles:
+                # Try to get 3D point from profile
+                point_3d = alignment.Model.get_3d_point_at_station(obj.ProfileName, obj.Station)
+                if point_3d:
+                    # Convert to FreeCAD coordinates using zero_referance
+                    from ..utils.support import zero_referance
+                    coord = zero_referance(alignment.Model.get_start_point(), [point_3d[:2]])
+                    center = coord[0]
+                    # Set elevation from profile (convert from m to mm)
+                    obj.Elevation = point_3d[2]
+                    center.z = point_3d[2] * 1000
+                else:
+                    # Fallback to horizontal only
+                    tuple_coord, tuple_vec = alignment.Model.get_orthogonal_at_station(
+                        obj.Station, "left"
+                    )
+                    from ..utils.support import zero_referance
+                    coord = zero_referance(alignment.Model.get_start_point(), [tuple_coord])
+                    center = coord[0]
+            else:
+                # No profile specified, use horizontal position only
+                tuple_coord, tuple_vec = alignment.Model.get_orthogonal_at_station(
+                    obj.Station, "left"
+                )
+                from ..utils.support import zero_referance
+                coord = zero_referance(alignment.Model.get_start_point(), [tuple_coord])
+                center = coord[0]
 
             # Apply rotation to the orthogonal vector
             import math
